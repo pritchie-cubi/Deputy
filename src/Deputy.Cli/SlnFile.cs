@@ -22,7 +22,7 @@ internal partial class SlnFile : ISolutionFile
 	private IEnumerable<ProjectInfo> ParseProjectsInfo()
 	{
 		using var reader = new StreamReader(solutionFilePath);
-		var directory = Path.GetDirectoryName(solutionFilePath)!;
+		var solutionDirectory = Path.GetDirectoryName(solutionFilePath)!;
 		while (reader.ReadLine() is { } line)
 		{
 			var match = ProjectLineRegex().Match(line);
@@ -31,7 +31,7 @@ internal partial class SlnFile : ISolutionFile
 				continue;
 			}
 
-			var fullPath = Path.Combine(directory, match.Groups["Path"].Value);
+			var fullPath = Path.Combine(solutionDirectory, match.Groups["Path"].Value);
 			if (File.Exists(fullPath))
 			{
 				yield return new ProjectInfo(

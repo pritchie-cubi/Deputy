@@ -1,5 +1,6 @@
 using System.Diagnostics.CodeAnalysis;
 using System.Xml.Linq;
+using System.Xml.XPath;
 
 namespace Deputy.Cli;
 
@@ -117,6 +118,11 @@ internal class ProjectFile(FileInfo projectFileInfo)
 		}
 	}
 
+	const string MicrosoftNetSdk = "Microsoft.NET.Sdk";
+	const string MicrosoftNetSdkWebMoniker = "Microsoft.NET.Sdk.Web";
+	const string MicrosoftNetTestSdkMoniker = "Microsoft.NET.Test.Sdk";
+	const string MsTestSdkMoniker = "MSTest.Sdk";
+
 	private static bool TryGetNuGetPackageId(string projectName, XDocument doc,
 		[NotNullWhen(true)] out string? packageId)
 	{
@@ -162,21 +168,20 @@ internal class ProjectFile(FileInfo projectFileInfo)
 			// - Microsoft.NET.Sdk => default true
 			// - Microsoft.NET.Sdk.Web, Microsoft.NET.Test.Sdk, MSTest.Sdk => default false
 			// - otherwise default false (conservative)
-			string sdkLower = sdkNormalized.ToLowerInvariant();
-			if (sdkLower.StartsWith("microsoft.net.sdk", StringComparison.OrdinalIgnoreCase) &&
-			    sdkLower == "microsoft.net.sdk")
+			if (sdkNormalized.StartsWith(MicrosoftNetSdk, StringComparison.OrdinalIgnoreCase) &&
+			    string.Equals(sdkNormalized, MicrosoftNetSdk, StringComparison.OrdinalIgnoreCase))
 			{
 				willPack = true;
 			}
-			else if (sdkLower.StartsWith("microsoft.net.sdk", StringComparison.OrdinalIgnoreCase) &&
-			         sdkLower.Contains("microsoft.net.sdk") &&
-			         sdkLower != "microsoft.net.sdk")
+			else if (sdkNormalized.StartsWith(MicrosoftNetSdk, StringComparison.OrdinalIgnoreCase) &&
+					 sdkNormalized.Contains(MicrosoftNetSdk, StringComparison.OrdinalIgnoreCase) &&
+			         string.Equals(sdkNormalized, MicrosoftNetSdk, StringComparison.OrdinalIgnoreCase))
 			{
 				// If Sdk attribute contains multiple SDKs separated by ';' or has suffixes,
 				// check for exact known web/test sdk names explicitly
-				if (sdkLower.Contains("microsoft.net.sdk.web") ||
-				    sdkLower.Contains("microsoft.net.test.sdk") ||
-				    sdkLower.Contains("mstest.sdk"))
+				if (sdkNormalized.Contains(MicrosoftNetSdkWebMoniker, StringComparison.OrdinalIgnoreCase) ||
+					sdkNormalized.Contains(MicrosoftNetTestSdkMoniker, StringComparison.OrdinalIgnoreCase) ||
+					sdkNormalized.Contains(MsTestSdkMoniker, StringComparison.OrdinalIgnoreCase))
 				{
 					willPack = false;
 				}
@@ -184,19 +189,19 @@ internal class ProjectFile(FileInfo projectFileInfo)
 				{
 					// If the primary token is Microsoft.NET.Sdk treat as Microsoft.NET.Sdk default true
 					var primary = sdkNormalized.Split([';'], StringSplitOptions.RemoveEmptyEntries).First().Trim();
-					willPack = string.Equals(primary, "Microsoft.NET.Sdk", StringComparison.OrdinalIgnoreCase);
+					willPack = string.Equals(primary, MicrosoftNetSdk, StringComparison.OrdinalIgnoreCase);
 				}
 			}
 			else
 			{
 				// Simpler checks for common SDK names
-				if (string.Equals(sdkNormalized, "Microsoft.NET.Sdk", StringComparison.OrdinalIgnoreCase))
+				if (string.Equals(sdkNormalized, MicrosoftNetSdk, StringComparison.OrdinalIgnoreCase))
 				{
 					willPack = true;
 				}
-				else if (string.Equals(sdkNormalized, "Microsoft.NET.Sdk.Web", StringComparison.OrdinalIgnoreCase) ||
-				         string.Equals(sdkNormalized, "Microsoft.NET.Test.Sdk", StringComparison.OrdinalIgnoreCase) ||
-				         string.Equals(sdkNormalized, "MSTest.Sdk", StringComparison.OrdinalIgnoreCase))
+				else if (string.Equals(sdkNormalized, MicrosoftNetSdkWebMoniker, StringComparison.OrdinalIgnoreCase) ||
+				         string.Equals(sdkNormalized, MicrosoftNetTestSdkMoniker, StringComparison.OrdinalIgnoreCase) ||
+				         string.Equals(sdkNormalized, MsTestSdkMoniker, StringComparison.OrdinalIgnoreCase))
 				{
 					willPack = false;
 				}
@@ -235,6 +240,53 @@ internal class ProjectFile(FileInfo projectFileInfo)
 			var el = d.Descendants().FirstOrDefault(e => string.Equals(e.Name.LocalName, localName, StringComparison.OrdinalIgnoreCase));
 			return el == null ? null : (el.Value?.Trim().Length > 0 ? el.Value.Trim() : null);
 		}
+	}
+	const string IsTestProjectElementName = "IsTestProject";
+	const string ProjectElementName = "Project";
+	const string PropertyGroupElementName = "PropertyGroup";
+	const string ItemGroupElementName = "ItemGroup";
+	const string PackageReferenceElementName = "PackageReference";
+
+	public static bool IsTestProject(XDocument csproj)
+	{
+		if (csproj.Root == null) return false;
+		var elements = csproj.XPathSelectElements($"/{ProjectElementName}/{PropertyGroupElementName}/{IsTestProjectElementName}");
+		if (elements.Any())
+		{
+			if (elements.Last().Value.Equals("true", StringComparison.OrdinalIgnoreCase))
+			{
+				return true;
+			}
+			if (elements.Last().Value.Equals("false", StringComparison.OrdinalIgnoreCase))
+			{
+				return false;
+			}
+		}
+
+		string? sdk = csproj.Root.Attribute("Sdk")?.Value;
+		if (sdk != null)
+		{
+			if (string.Equals(sdk, MicrosoftNetTestSdkMoniker, StringComparison.OrdinalIgnoreCase)
+				|| sdk.StartsWith(MsTestSdkMoniker, StringComparison.OrdinalIgnoreCase))
+			{
+				return true;
+			}
+		}
+		string[] testPackgeIdentifiers = {
+			"Microsoft.NET.Test.Sdk",
+			"xunit",
+			"NUnit",
+			"MSTest.TestFramework",
+			"xunit.v3.mtp-v2",
+			"xunit.v3",
+			"Microsoft.VisualStudio.TestPlatform"
+		};
+		elements = csproj.XPathSelectElements($"/{ProjectElementName}/{ItemGroupElementName}/{PackageReferenceElementName}");
+		if (elements.Any(e => testPackgeIdentifiers.Contains(e.Attribute("Include")?.Value)))
+		{
+			return true;
+		}
+		return false;
 	}
 }
 

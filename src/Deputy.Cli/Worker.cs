@@ -12,6 +12,8 @@ public class Worker(ILogger<Worker> logger, IConfiguration configuration, IHostA
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
 		var sourceDirectory = configuration["SourceDirectory"];
+		var sourceFilter = configuration["SourceFilter"] ?? "*.*";
+
 		if (string.IsNullOrEmpty(sourceDirectory))
 		{
 			if (logger.IsEnabled(LogLevel.Warning))
@@ -26,7 +28,7 @@ public class Worker(ILogger<Worker> logger, IConfiguration configuration, IHostA
 		var projectGraphBuilder = new DependencyGraphBuilder<ProjectNode>();
 		var packageGraphBuilder = new DependencyGraphBuilder<PackageNode>();
 
-		foreach (var subDirectory in Directory.GetDirectories(sourceDirectory))
+		foreach (var subDirectory in Directory.GetDirectories(sourceDirectory, sourceFilter))
 		{
 			var candidateRepoName = Path.GetFileName(subDirectory);
 			foreach (var solutionFilePath in Directory.GetFiles(subDirectory, "*.sln?", SearchOption.AllDirectories))
@@ -55,6 +57,15 @@ public class Worker(ILogger<Worker> logger, IConfiguration configuration, IHostA
 								dependency: new PackageNode(packageDependency.Id),
 								dependent: packageNode);
 						}
+						foreach (var projectDependency in projectFile.ProjectReferences)
+						{
+							foreach (var packageDependency in projectFile.PackageReferences)
+							{
+								packageGraphBuilder.AddDependency(
+									dependency: new PackageNode(packageDependency.Id),
+									dependent: packageNode);
+							}
+						}
 					}
 				}
 
@@ -69,10 +80,11 @@ public class Worker(ILogger<Worker> logger, IConfiguration configuration, IHostA
 					logger.LogInformation("Found solution file: {SolutionFile}", solutionFilePath);
 				}
 			}
-			var packageGraph = packageGraphBuilder.Build();
-			var prioritizedPackages = TopologicalSort.DfsSort(packageGraph);
-			Debug.Assert(!prioritizedPackages.HasCycles);
 		}
+		var packageGraph = packageGraphBuilder.Build();
+		var prioritizedPackages = TopologicalSort.DfsSort(packageGraph);
+		var filteredPrioritizedPackages = prioritizedPackages.SortedNodes.Where(n => n.Id.StartsWith("Cubi."));
+		Debug.Assert(!prioritizedPackages.HasCycles);
 
 		appLifetime.StopApplication();
     }

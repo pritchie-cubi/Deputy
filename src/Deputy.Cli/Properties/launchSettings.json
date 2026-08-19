@@ -2,7 +2,7 @@
   "profiles": {
     "Deputy.Cli": {
       "commandName": "Project",
-      "commandLineArgs": "--SourceDirectory ..\\..",
+      "commandLineArgs": "--SourceDirectory \\src --SourceFilter Cubi.*",
       "environmentVariables": {
         "DOTNET_ENVIRONMENT": "Development"
       },

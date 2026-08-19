@@ -11,4 +11,8 @@
     <PackageReference Include="Graffs" Version="0.1.0" />
     <PackageReference Include="Microsoft.Extensions.Hosting" Version="10.0.11" />
   </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Deputy.Tests" />
+  </ItemGroup>
 </Project>
